@@ -3,7 +3,7 @@ use ofborg::nix::Nix;
 use std::path::Path;
 
 #[derive(Deserialize, Debug, Eq, PartialEq)]
-struct ImpactedMaintainers (HashMap<Maintainer, Vec<Package>>);
+pub struct ImpactedMaintainers (HashMap<Maintainer, Vec<Package>>);
 #[derive(Deserialize, Debug, Eq, PartialEq, Hash)]
 struct Maintainer (String);
 impl <'a> From<&'a str> for Maintainer {
@@ -20,7 +20,7 @@ impl <'a> From<&'a str> for Package {
 }
 
 #[derive(Debug)]
-enum CalculationError {
+pub enum CalculationError {
     DeserializeError(serde_json::Error),
     Io(std::io::Error),
     Utf8(std::string::FromUtf8Error),
@@ -42,7 +42,8 @@ impl From<std::string::FromUtf8Error> for CalculationError {
 }
 
 impl ImpactedMaintainers {
-    pub fn calculate(nix: &Nix, checkout: &Path, paths: Vec<String>, attributes:Vec<Vec<&str>>) -> Result<ImpactedMaintainers, CalculationError> {
+    pub fn calculate(nix: &Nix, checkout: &Path, paths: &Vec<String>, attributes: &
+                     Vec<Vec<&str>>) -> Result<ImpactedMaintainers, CalculationError> {
         let pathstr = serde_json::to_string(&paths)?;
         let attrstr = serde_json::to_string(&attributes)?;
 
@@ -127,8 +128,8 @@ mod tests {
         let parsed = ImpactedMaintainers::calculate(
             &nix,
             &working_co.clone_to(),
-            paths,
-            attributes,
+            &paths,
+            &attributes,
         );
 
         let mut expect = ImpactedMaintainers(HashMap::new());
