@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use ofborg::nix::Nix;
+use std::path::Path;
 
 #[derive(Deserialize, Debug, Eq, PartialEq)]
 struct ImpactedMaintainers (HashMap<Maintainer, Vec<Package>>);
@@ -17,6 +19,25 @@ impl <'a> From<&'a str> for Package {
     }
 }
 
+impl ImpactedMaintainers {
+    pub fn calculate(nix: &Nix, checkout: &Path, paths: Vec<String>, attributes:Vec<Vec<&str>>) -> ImpactedMaintainers {
+        let pathstr = serde_json::to_string(&paths).unwrap();
+        let attrstr = serde_json::to_string(&attributes).unwrap();
+
+        let mut argstrs: HashMap<&str, &str> = HashMap::new();
+        argstrs.insert("changedattrsjson", &attrstr);
+        argstrs.insert("changedpathsjson", &pathstr);
+
+        let ret = nix.safely_evaluate_expr_cmd(
+            &checkout,
+            include_str!("./maintainers.nix"),
+            argstrs,
+        ).output().unwrap();
+
+        serde_json::from_str(&String::from_utf8(ret.stdout).unwrap()).unwrap()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -25,7 +46,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     use checkout::cached_cloner;
     use clone::GitClonable;
-    use ofborg::nix::Nix;
     use ofborg::test_scratch::TestScratch;
     use std::process::Command;
     use std::process::Stdio;
@@ -80,23 +100,14 @@ mod tests {
             .checkout_ref(&OsStr::new(&hash))
             .unwrap();
 
-        let pathstr = serde_json::to_string(&paths).unwrap();
-        let attrstr = serde_json::to_string(&attributes).unwrap();
-
-        let mut argstrs: HashMap<&str, &str> = HashMap::new();
-        argstrs.insert("changedattrsjson", &attrstr);
-        argstrs.insert("changedpathsjson", &pathstr);
-
         let remote = env::var("NIX_REMOTE").unwrap_or("".to_owned());
         let nix = Nix::new("x86_64-linux".to_owned(), remote, 1800, None);
-        let ret = nix.safely_evaluate_expr_cmd(
+        let parsed = ImpactedMaintainers::calculate(
+            &nix,
             &working_co.clone_to(),
-            include_str!("./maintainers.nix"),
-            argstrs,
-        ).output().expect(":)");
-
-        let parsed: ImpactedMaintainers =
-            serde_json::from_str(&String::from_utf8(ret.stdout).unwrap()).unwrap();
+            paths,
+            attributes,
+        );
 
         let mut expect = ImpactedMaintainers(HashMap::new());
         expect.0.insert(
