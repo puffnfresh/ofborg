@@ -161,7 +161,7 @@ impl Nix {
             attrargs.push(attr);
         }
 
-        return self.safe_command(Operation::Instantiate, nixpkgs, attrargs);
+        return self.safe_command(Operation::Instantiate, nixpkgs, attrargs, vec![]);
     }
 
     pub fn safely_evaluate_expr_cmd(
@@ -169,6 +169,7 @@ impl Nix {
         nixpkgs: &Path,
         expr: &str,
         argstrs: HashMap<&str,&str>,
+        extra_paths: Vec<&Path>
     ) -> Command {
         let mut attrargs: Vec<String> = Vec::with_capacity(2 + (argstrs.len() * 3));
         attrargs.push("--expr".to_owned());
@@ -179,7 +180,7 @@ impl Nix {
             attrargs.push(argstr.to_owned());
         }
 
-        return self.safe_command(Operation::Evaluate, nixpkgs, attrargs);
+        return self.safe_command(Operation::Evaluate, nixpkgs, attrargs, extra_paths);
     }
 
     pub fn safely_build_attrs(
@@ -216,7 +217,7 @@ impl Nix {
             attrargs.push(attr);
         }
 
-        self.safe_command(Operation::Build, nixpkgs, attrargs)
+        self.safe_command(Operation::Build, nixpkgs, attrargs, vec![])
     }
 
     pub fn safely(
@@ -226,7 +227,7 @@ impl Nix {
         args: Vec<String>,
         keep_stdout: bool,
     ) -> Result<File, File> {
-        return self.run(self.safe_command(op, nixpkgs, args), keep_stdout);
+        return self.run(self.safe_command(op, nixpkgs, args, vec![]), keep_stdout);
     }
 
     pub fn run(&self, mut cmd: Command, keep_stdout: bool) -> Result<File, File> {
@@ -258,8 +259,12 @@ impl Nix {
         }
     }
 
-    pub fn safe_command(&self, op: Operation, nixpkgs: &Path, args: Vec<String>) -> Command {
-        let nixpath = format!("nixpkgs={}", nixpkgs.display());
+    pub fn safe_command(&self, op: Operation, nixpkgs: &Path, args: Vec<String>, safe_paths: Vec<&Path>) -> Command {
+        let nixpkgspath = format!("nixpkgs={}", nixpkgs.display());
+        let mut nixpath: Vec<String> = safe_paths.iter()
+            .map(|path| format!("{}", path.display()))
+            .collect();
+        nixpath.push(nixpkgspath);
 
         let mut command = op.command();
         op.args(&mut command);
@@ -267,7 +272,7 @@ impl Nix {
         command.env_clear();
         command.current_dir(nixpkgs);
         command.env("HOME", "/homeless-shelter");
-        command.env("NIX_PATH", nixpath);
+        command.env("NIX_PATH", nixpath.join(":"));
         command.env("NIX_REMOTE", &self.remote);
 
         if let Some(ref initial_heap_size) = self.initial_heap_size {
@@ -449,7 +454,7 @@ mod tests {
 
         let ret: Result<File, File> =
             nix.run(
-                nix.safe_command(op, build_path().as_path(), vec![String::from("--version")]),
+                nix.safe_command(op, build_path().as_path(), vec![String::from("--version")], vec![]),
                 true,
             );
 
@@ -468,7 +473,7 @@ mod tests {
 
         let ret: Result<File, File> =
             nix.run(
-                nix.safe_command(op, build_path().as_path(), vec![String::from("--version")]),
+                nix.safe_command(op, build_path().as_path(), vec![String::from("--version")], vec![]),
                 true,
             );
 
@@ -487,7 +492,7 @@ mod tests {
 
         let ret: Result<File, File> =
             nix.run(
-                nix.safe_command(op, build_path().as_path(), vec![String::from("--version")]),
+                nix.safe_command(op, build_path().as_path(), vec![String::from("--version")], vec![]),
                 true,
             );
 
@@ -506,7 +511,7 @@ mod tests {
 
         let ret: Result<File, File> =
             nix.run(
-                nix.safe_command(op, build_path().as_path(), vec![String::from("--version")]),
+                nix.safe_command(op, build_path().as_path(), vec![String::from("--version")], vec![]),
                 true,
             );
 
@@ -526,7 +531,7 @@ mod tests {
 
         let ret: Result<File, File> =
             nix.run(
-                nix.safe_command(env_noop(), build_path().as_path(), vec![]),
+                nix.safe_command(env_noop(), build_path().as_path(), vec![], vec![]),
                 true,
             );
 
@@ -549,7 +554,7 @@ mod tests {
 
         let ret: Result<File, File> =
             nix.run(
-                nix.safe_command(env_noop(), build_path().as_path(), vec![]),
+                nix.safe_command(env_noop(), build_path().as_path(), vec![], vec![]),
                 true,
             );
 
@@ -572,7 +577,7 @@ mod tests {
         let op = noop(Operation::Build);
 
         let ret: Result<File, File> = nix.run(
-            nix.safe_command(op, build_path().as_path(), vec![]),
+            nix.safe_command(op, build_path().as_path(), vec![], vec![]),
             true,
         );
 
@@ -693,7 +698,8 @@ mod tests {
             r#"{ foo ? "bar" }: "The magic value is ${foo}""#,
             [
                 ("foo", "tux"),
-            ].iter().cloned().collect()
+            ].iter().cloned().collect(),
+            vec![],
         ), true);
 
         assert_run(
