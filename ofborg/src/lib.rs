@@ -50,6 +50,7 @@ pub mod notifyworker;
 pub mod writetoline;
 pub mod test_scratch;
 pub mod easyamqp;
+pub mod maintainers;
 
 pub mod ofborg {
     pub use asynccmd;
