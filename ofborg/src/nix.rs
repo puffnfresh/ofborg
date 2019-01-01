@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::path::Path;
+use std::collections::HashMap;
 use std::process::{Command, Stdio};
 use tempfile::tempfile;
 use std::io::BufReader;
@@ -14,6 +15,7 @@ use ofborg::partition_result;
 
 #[derive(Clone, Debug)]
 pub enum Operation {
+    Evaluate,
     Instantiate,
     Build,
     QueryPackagesJSON,
@@ -25,6 +27,7 @@ pub enum Operation {
 impl Operation {
     fn command(&self) -> Command {
         match *self {
+            Operation::Evaluate => Command::new("nix-instantiate"),
             Operation::Instantiate => Command::new("nix-instantiate"),
             Operation::Build => Command::new("nix-build"),
             Operation::QueryPackagesJSON => Command::new("nix-env"),
@@ -45,8 +48,15 @@ impl Operation {
             Operation::QueryPackagesOutputs => {
                 command.args(&["--query", "--available", "--no-name", "--attr-path", "--out-path"]);
             },
-            Operation::NoOp { ref operation } => { operation.args(command); },
-            _ => (),
+            Operation::NoOp { ref operation } => {
+                operation.args(command);
+            },
+            Operation::Evaluate => {
+                command.args(&[
+                    "--eval", "--strict", "--json",
+                ]);
+            },
+            _ => ()
         };
     }
 }
@@ -60,6 +70,7 @@ impl fmt::Display for Operation {
             Operation::QueryPackagesOutputs => write!(f, "{}", "nix-env -qaP --no-name --out-path"),
             Operation::NoOp { ref operation } => operation.fmt(f),
             Operation::Unknown { ref program } => write!(f, "{}", program),
+            Operation::Evaluate  => write!(f, "{} --strict --json ...", "nix-instantiate"),
         }
     }
 }
@@ -151,6 +162,24 @@ impl Nix {
         }
 
         return self.safe_command(Operation::Instantiate, nixpkgs, attrargs);
+    }
+
+    pub fn safely_evaluate_expr_cmd(
+        &self,
+        nixpkgs: &Path,
+        expr: &str,
+        argstrs: HashMap<&str,&str>,
+    ) -> Command {
+        let mut attrargs: Vec<String> = Vec::with_capacity(2 + (argstrs.len() * 3));
+        attrargs.push("--expr".to_owned());
+        attrargs.push(expr.to_owned());
+        for (argname, argstr) in argstrs {
+            attrargs.push(String::from("--argstr"));
+            attrargs.push(argname.to_owned());
+            attrargs.push(argstr.to_owned());
+        }
+
+        return self.safe_command(Operation::Evaluate, nixpkgs, attrargs);
     }
 
     pub fn safely_build_attrs(
@@ -654,6 +683,28 @@ mod tests {
             ],
         );
     }
+
+    #[test]
+    fn safely_evaluate_expr_success() {
+        let nix = nix();
+
+        let ret: Result<File, File> = nix.run(nix.safely_evaluate_expr_cmd(
+            individual_eval_path().as_path(),
+            r#"{ foo ? "bar" }: "The magic value is ${foo}""#,
+            [
+                ("foo", "tux"),
+            ].iter().cloned().collect()
+        ), true);
+
+        assert_run(
+            ret,
+            Expect::Pass,
+            vec![
+                "The magic value is tux"
+            ],
+        );
+    }
+
 
     #[test]
     fn strict_sandboxing() {
